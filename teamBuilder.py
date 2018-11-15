@@ -14,13 +14,13 @@ Functionality to add:
   - Eventually change this all to do it by scraping the website for the point data.
   - Migrate data to a database?
   - Merge all datasheets into one continuous set + add object functionality for this
+      - columns "total_games, total_pts, last_wk_games, last_wk_pts, games_this_wk"
 '''
 
 import pandas as pd 
 import matplotlib.pyplot as plt 
 import numpy as np 
 from itertools import combinations
-from statistics import mean
 
 
 # ----------------------- PLAYER OBJECT -------------------------
@@ -34,11 +34,10 @@ class Player(object):
           position: list of up to two strings of type 'C' for centre, 'L' for 
                     left wing, 'R' for right wing, 'D' for defense, 'G' for 
                     goalie (only forwards C/L/R will have more than 1)
-          ppg: list of floats indicating points per game [1wkago, 2wksago, 3wksago]
-          ptotal: list of floats indicating total points [1wkago, 2wksago, 3wksago]
-          ppweek: list of floats indicating weekly total points [1wago, 2wago, 3wago]
-          next_week_games: integer, number of games in next week
-          next_week_points: float, predicted total points for the next week
+          stats: a nested dictionary of points per game (ppg), total points 
+                 (pts), and number of games (games), separated by time period 
+                 (last week [last_week], next week [predicted], or overall)
+          
           
       FUNCTIONS:
           __init__
@@ -49,87 +48,187 @@ class Player(object):
           calculate_player_stats
           print_player_stats
           plot_player_stats
+          print_player_info
           predict_player_next_points
     '''
 
     def __init__(self, d):
+        # Identity info
         self.name = d['name']
         self.position = [d['position_1'], d['position_2']]
-        self.ppg, self.ptotal, self.ppweek = self.calculate_player_stats(d) 
-        self.next_week_games = d['games_this_week']
-        self.next_week_points = self.predict_player_next_points()
-
+        self.stats = {'predicted': {'pts': 0, 'games': 0, 'ppg': 0},
+                      'last_week': {'pts': 0, 'games': 0, 'ppg': 0},
+                      'total': {'pts': 0, 'games': 0, 'ppg': 0}
+                      }
+        self.calculate_player_stats(d) #Fill in the stats dictionary
+        
 
     def get_name(self):
+        '''
+            Access and return the player's name as string.
+        '''
         return self.name
 
     def get_position(self):
-        return self.position
-
-    def get_stats(self):
-        return self.ppg, self.ptotal, self.ppweek
+        '''
+            Access and return the player's positions as list of strings
+        '''
+        
+        return [x for x in self.position if str(x) != 'nan']
     
     def get_prediction(self):
-        return self.next_week_points
+        return self.stats['predicted']['pts']
+    
+    def get_stats(self, time=None, stat=None): 
+        '''
+           Access specified time period data, type of data, specific data cell, 
+           or all data if none specified.
+           
+           @param: time, a string referring to a time period in stats dict
+                   stat, a string referring to a type of stat in stats dict
+                   Both can also be "None" (default)
+           @return: A float (specific stat), a dict (period/type of stat), or
+                    a nested dict (all stats)
+        '''
 
-  
-    def calculate_player_stats(self, player):
-        '''
-          @param: none
-          return: three lists of data for [last 7 days, 7 days before that, 16 days before that]
-        '''
-        ppweek1 = 0
-        ppweek2 = 0 
-        ppweek3 = 0
-        ppg_wk1 = 0
-        ppg_wk2 = 0
-        ppg_before = 0
-        ptot_wk1 = round(player['points_30'], 2) #all the points until now, 16 + 7 + 7 days
-        ptot_before = round((player['points_30']-player['points_14']), 2) # earliest 16 days of data
-    
-        # Find ppg for the most recent week
-        if player['games_7'] is not 0:  # If 0 games played, leave ppg and points as 0.
-            ppweek1 = round(player['points_7'] , 2)
-            ppg_wk1 = round(ppweek1/player['games_7'], 2)
-    
-        ptot_wk2 = round(ptot_wk1 - ppweek1, 2) # earliest 16 + 7 days
-        if player['games_14'] is not 0: 
-            ppweek2 = round(player['points_14']-player['points_7'], 2)
-            ppg_wk2 = round(ppweek2/(player['games_14']-player['games_7']), 2)
-    
+        if time is not None:
+            pass
+            if stat is not None:
+                # Return a single stat type for 1 time point
+                return self.stats[time][stat] #float
+            
+            else:
+                # Return range of stats for certain time
+                return self.stats[time] #dict
+            
+        elif stat is not None: 
+            # Return a range of stats of the same type
+            return {'predicted': self.stats['predicted'][stat], 
+                      'last_week': self.stats['last_week'][stat],
+                      'total': self.stats['total'][stat]
+                    }
         
-        # This one is tricky since it is not previous + 7 days, it is previous + 16 days.
-        # Points per week will be normalized to 7 days. Points per game is as usual.
-        ppweek3 = round(ptot_before*(7/16), 2)
-        games_wk3 = player['games_30']-player['games_14']
-        if games_wk3 is not 0: 
-            ppg_before = round(ptot_before/games_wk3, 2)
+        # ELSE: Return the whole dict, stat==None & time ==None
+        return self.stats #nested dict
+                
     
-        return [ppg_wk1, ppg_wk2, ppg_before], [ptot_wk1, ptot_wk2, ptot_before], [ppweek1, ppweek2, ppweek3]
+    def calculate_player_stats(self, player_data):
+        '''
+            Get points per game, total points, and number of games for time 
+            periods of the total season up until now, the previous week, as
+            well as the upcoming week. This includes making a call to the 
+            prediction function that will predict how many points the player
+            is expected to score in the upcoming week. Set all these to the
+            self.stats nested dictionary attribute. 
+            
+            @param: player_data, a dictionary representing one row of data from
+                    the Excel file containing all player data
+            @return: none
+        '''
+        # Last week stats
+        points_last_week = player_data['points_7']
+        games_last_week = player_data['games_7']
+        self.stats['last_week']['pts'] = points_last_week
+        self.stats['last_week']['games'] = games_last_week
+        self.stats['last_week']['ppg'] = round(points_last_week/games_last_week,2)
+        
+        # Overall stats
+        games_total = player_data['games_30'] #Eventually change this to total
+        points_total = player_data['points_30'] #Eventually change to points_total
+        self.stats['total']['pts'] = points_total
+        self.stats['total']['games'] = games_total
+        self.stats['total']['ppg'] = round(points_total/games_total, 2) 
+        
+        # Predicted stats -> Call to predict_player_next_points()
+        games_this_week = player_data['games_this_week']
+        self.stats['predicted']['games'] = games_this_week
+        points_this_week = self.predict_player_next_points()
+        self.stats['predicted']['pts'] = points_this_week
+        self.stats['predicted']['ppg'] = round(points_this_week/games_this_week, 2)
+        
+       
     
+    def print_player_stats(self): 
+        '''
+           Print player stats in a nice pretty table.
+        '''
+        
+        # table heading
+        print('{:8} {:8} {:10} {:10}'.format("stat", "total", "last_wk", "next_wk_predict"))
+        for stat in list(self.stats['total'].keys()):
+            print('{:8} {:<8} {:<10} {:<10}'.format(
+                    stat, #stat name
+                    self.stats['total'][stat],
+                    self.stats['last_week'][stat],
+                    self.stats['predicted'][stat]
+                    ))
+        
     
-    def print_player_stats(self, info_bar=True):
-        if info_bar:
-            print("[name, ppg average, total points, next week predicted points]")
-        print(self.name, round(mean(self.ppg), 2), self.ptotal[0], self.next_week_points)
+    def print_player_info(self):
+        '''
+           Print player name, position, and stats. 
+        '''
+        print("\nPlayer: "+ self.get_name())
+        print("Position: ", self.get_position())
+        print("Stats: ")
+        self.print_player_stats()
+        
     
-    def plot_player_stats(self):
-        weeks = [-1, -2, -3]
-        p1, = plt.plot(weeks, self.ppg, 'r', label='ppg')
-        p2, = plt.plot(weeks, self.ppweek, 'b', label='ppweek')
-        p3, = plt.plot(weeks, self.ptotal, 'g', label='ptotal')
-        plt.title(self.name)
-        plt.xlabel('Weeks ago')
-        plt.ylabel('Value')
-        plt.legend()
+    def plot_player_stats(self): # DEPRECATED -> CHANGE
+        '''
+           Plot the progression of points per game, and total points, over time
+           and predicted. Data points should be:
+               1. Total before last week
+               2. Total including last week
+               3. Predicted after this week
+        '''
+        # Set the variables to plot
+        time = ['before', 'last week', 'upcoming week']
+        x = [0,1,2]
+        pts_before = self.get_stats('total', 'pts') - self.get_stats('last_week', 'pts')
+        ppg_before = pts_before / (self.get_stats('total', 'games') - self.get_stats('last_week', 'games'))
+        pts_array = [pts_before, self.get_stats('total', 'pts'), self.get_stats('total','pts') + self.get_stats('predicted', 'pts')]
+        ppg_array = [ppg_before, self.get_stats('last_week', 'ppg'), self.get_stats('predicted', 'ppg')]
+        
+        # Create the figure
+        fig = plt.figure(1)
+        fig.suptitle(self.get_name(), fontsize=16)
+        
+        # Subplot 1, total points
+        plt.subplot(211)
+        plt.xticks(x, time)
+        plt.plot(x, pts_array, 'r', label='total points')
+        plt.xlabel('Time Period')
+        plt.ylabel('Total Points')
+        plt.ylim(bottom=0, top=(max(pts_array) + 0.25*max(pts_array)))
+        
+        # Subplot 2, points per game
+        plt.subplot(212)
+        plt.xticks(x, time)
+        plt.plot(x, ppg_array, 'b', label='points per game')
+        plt.xlabel('Time Period')
+        plt.ylabel('Points Per Game')
+        plt.ylim(bottom=0, top=(max(ppg_array) + 0.25*max(ppg_array)))
+        
         plt.show()
+        
+        
     
     def predict_player_next_points(self):
-        return round((self.ppg[0]+self.ppg[1]+self.ppg[2])*self.next_week_games /3, 2)
-        
-
-
-
+        '''
+            Return the predicted points for the player for next week.
+            This depends on the ppg metric we decide to use, and the number
+            of games to play next week.
+            For now the ppg metric is an overall average ppg, weighted x2 for
+            the week immediately previous. 
+            
+            @return: float
+        '''
+        return round( ((self.stats['total']['ppg'] + 
+                         self.stats['last_week']['ppg'] )/2 ) 
+                         * self.stats['predicted']['games'], 2
+                      )
+ 
 
 
 # ---------------------- TEAM OBJECT ----------------------
@@ -151,7 +250,6 @@ class Team(object):
         print_team_stats
         print_starting_roster_stats
         get_player_by_name
-        get_player_by_index
         get_players_by_position
         set_optimal_starting_roster
         set_random_starting_roster
@@ -161,7 +259,8 @@ class Team(object):
   
   def __init__(self, path):
     '''
-      Instantiate a Team object.
+      Instantiate a Team object. Player list gets imported, but starting 
+      roster starts as unset - needs to be manually set later. 
       
       @param: path, a string indicating the path to the Excel sheet data
       @return: none
@@ -217,9 +316,9 @@ class Team(object):
 
   def print_team_stats(self,  sub_list=None):
     '''
-      Print all Player statistics for the whole Team (or just the roster)
+      Print all Player statistics for the whole Team (or a sub list)
       
-      @param: none, or binary "just_roster" value
+      @param: none, or a sub_list list of Player objects
       @return: none
     '''
     list_to_use = sub_list
@@ -227,9 +326,16 @@ class Team(object):
         list_to_use = self.player_list
         
     print("\nTeam Stats:")
-    print("[name, ppg average, total points, next week predicted points]")
+    print('{:12} {:10} {:12} {:12} {:10}'.format("name", "total_pts", "overall_ppg", "last_wk_ppg", "next_wk_predict"))
     for p in list_to_use:
-      p.print_player_stats(info_bar=False)
+        print('{:12} {:<10} {:<12} {:<12} {:<10}'.format(
+                                                     p.get_name(),
+                                                     p.get_stats('total', 'pts'),
+                                                     p.get_stats('total', 'ppg'),
+                                                     p.get_stats('last_week', 'ppg'),
+                                                     p.get_stats('predicted', 'pts')
+                                                    ))
+                  
             
     
   def print_starting_roster_stats(self):
@@ -241,10 +347,16 @@ class Team(object):
       '''
       
       print("\nStarting Roster Stats:")
-      print("[name, ppg 1, ppg 2, ppg 3, ptot 1, ptot 2, ptot 3, ppweek 1, ppweek 2, ppweek 3]")
+      print('{:12} {:10} {:12} {:12} {:10}'.format("name", "total_pts", "overall_ppg", "last_wk_ppg", "next_wk_predict"))
       for position in self.starting_roster.keys():
-          for player in self.starting_roster[position]:
-              player.print_player_stats(info_bar=False)
+          for p in self.starting_roster[position]:
+              print('{:12} {:10} {:12} {:12} {:10}'.format(
+                                          p.get_name(),
+                                          p.get_stats('total', 'pts'),
+                                          p.get_stats('total', 'ppg'),
+                                          p.get_stats('last_week', 'ppg'),
+                                          p.get_stats('predicted', 'pts')
+                                                    ))
 
 
   def get_player_by_name(self, name):
@@ -262,19 +374,6 @@ class Team(object):
     return None
 
 
-  def get_player_by_index(self, i):
-    '''
-      Return the player in the player list at a certain index.
-      
-      @param: int, index of player in player_list
-      @return: a Player object corresponding to index given
-    '''
-    if i >= 0 and i < len(self.player_list): 
-      return  self.player_list[i]
-
-    return None 
-
-
   def get_players_by_position(self, position):
     '''
       Return a list of all Player objects that play that position.
@@ -283,7 +382,7 @@ class Team(object):
       @return: list of Player objects 
     '''
     result = []
-    for p in self.player_list: # <- can turn to lambda expression??
+    for p in self.player_list: 
       if position in p.position: 
         result.append(p)
     
@@ -334,7 +433,7 @@ class Team(object):
     
     # FORWARDS:
     # Method:
-    #   Enumerate all possible combinations
+    #   Find all possible combinations
     #   Check if combination produces a maximum predicted sum
     
     RW = self.get_players_by_position('R')
@@ -376,13 +475,13 @@ class Team(object):
     # DEFENSE: 
     # Just sort by descending points and take top 4
     defense = self.get_players_by_position('D')
-    defense.sort(key=lambda x: x.next_week_points, reverse=True)
+    defense.sort(key=lambda x: x.get_prediction(), reverse=True)
     self.starting_roster['D'] = defense[0:4]
     
     #GOALIES:
     # Just sort by descending points and take top 2
     goalies = self.get_players_by_position('G')
-    goalies.sort(key=lambda x: x.next_week_points, reverse=True)
+    goalies.sort(key=lambda x: x.get_prediction(), reverse=True)
     self.starting_roster['G'] = goalies[0:2]
 
 
@@ -433,6 +532,7 @@ class Team(object):
 # --------------- MAIN FUNCTION ------------------
 if __name__ == '__main__':
     '''
+    SHOW BASIC FUNCTIONALITY:
         1) Instantiate a team
         2) Print team stats
         3) Print OPTIMAL starting roster
@@ -442,16 +542,18 @@ if __name__ == '__main__':
         7) Plot player stats 
     '''
     testteam = Team('FantasyTeamPoints.xlsx')
+    
     testteam.print_team_stats()
     testteam.set_optimal_starting_roster()
-    print("")
+    print("\nStarting Roster:")
     testteam.print_starting_roster()
-    print("\nRoster Next Points:")
-    print(testteam.predict_starting_roster_next_points())
-    print("")
-    p = testteam.get_player_by_name('Hall')
-    p.print_player_stats()
+    print("\nPredicted Roster Points: ", testteam.predict_starting_roster_next_points())
+    
+    
+    p = testteam.get_player_by_name('Kane')
+    p.print_player_info()
     p.plot_player_stats()
+    
 
 
     
