@@ -133,8 +133,8 @@ class Player(object):
         self.stats['last_week']['ppg'] = round(points_last_week/games_last_week,2)
         
         # Overall stats
-        games_total = player_data['games_30'] #Eventually change this to total
-        points_total = player_data['points_30'] #Eventually change to points_total
+        games_total = player_data['games_total'] #Eventually change this to total
+        points_total = player_data['points_total'] #Eventually change to points_total
         self.stats['total']['pts'] = points_total
         self.stats['total']['games'] = games_total
         self.stats['total']['ppg'] = round(points_total/games_total, 2) 
@@ -277,7 +277,7 @@ class Team(object):
       @return: players, list of Player objects
     '''
     
-    df = pd.read_excel(path, sheetname='Nov12Data') # Newer version is sheet_name
+    df = pd.read_excel(path, sheetname='Nov26Data') # Newer version is sheet_name
     df_as_dict = df.to_dict('records')
     players = []
     for i in range(len(df_as_dict)):
@@ -326,14 +326,20 @@ class Team(object):
         list_to_use = self.player_list
         
     print("\nTeam Stats:")
-    print('{:12} {:10} {:12} {:12} {:10}'.format("name", "total_pts", "overall_ppg", "last_wk_ppg", "next_wk_predict"))
+    print('{:12} {:12} {:10} {:12} {:12} {:10}'.format("name", 
+                                                 "position", 
+                                                 "total_pts", 
+                                                 "overall_ppg", 
+                                                 "last_wk_ppg", 
+                                                 "next_wk_ppg"))
     for p in list_to_use:
-        print('{:12} {:<10} {:<12} {:<12} {:<10}'.format(
+        print('{:12} {:12} {:<10} {:<12} {:<12} {:<10}'.format(
                                                      p.get_name(),
+                                                     str(p.get_position()),
                                                      p.get_stats('total', 'pts'),
                                                      p.get_stats('total', 'ppg'),
                                                      p.get_stats('last_week', 'ppg'),
-                                                     p.get_stats('predicted', 'pts')
+                                                     p.get_stats('predicted', 'ppg')
                                                     ))
                   
             
@@ -550,7 +556,7 @@ if __name__ == '__main__':
     print("\nPredicted Roster Points: ", testteam.predict_starting_roster_next_points())
     
     
-    p = testteam.get_player_by_name('Kane')
+    p = testteam.get_player_by_name('Hellebuyck')
     p.print_player_info()
     p.plot_player_stats()
     
