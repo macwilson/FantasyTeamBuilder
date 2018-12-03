@@ -257,7 +257,7 @@ class Team(object):
         predict_starting_roster_next_points
   '''
   
-  def __init__(self, path):
+  def __init__(self, path, sheet):
     '''
       Instantiate a Team object. Player list gets imported, but starting 
       roster starts as unset - needs to be manually set later. 
@@ -265,19 +265,21 @@ class Team(object):
       @param: path, a string indicating the path to the Excel sheet data
       @return: none
     '''
-    self.player_list = self.create_team(path) 
+    self.player_list = self.create_team(path, sheet) 
     self.starting_roster = {'C': [], 'L': [], 'R': [], 'D': [], 'G': []}
 
 
-  def create_team(self, path):
+  def create_team(self, path, sheet):
     '''
       For each player in the data file, make a player object.  
       
       @param: string, path to excel file 
       @return: players, list of Player objects
     '''
+    assert path != None, "path not provided"
+    assert sheet != None, "sheet not provided"
     
-    df = pd.read_excel(path, sheetname='Nov26Data') # Newer version is sheet_name
+    df = pd.read_excel(path, sheetname=sheet) # Newer version is sheet_name
     df_as_dict = df.to_dict('records')
     players = []
     for i in range(len(df_as_dict)):
@@ -297,6 +299,7 @@ class Team(object):
     if sub_list is  None:
         list_to_use = self.player_list
     for p in list_to_use:
+        assert type(p) == Player, "print_player_list requires list of Player objects"
         print(p.get_name())
         
         
@@ -333,6 +336,7 @@ class Team(object):
                                                  "last_wk_ppg", 
                                                  "next_wk_ppg"))
     for p in list_to_use:
+        assert type(p) == Player, "print_team_stats takes a list of Player objects"
         print('{:12} {:12} {:<10} {:<12} {:<12} {:<10}'.format(
                                                      p.get_name(),
                                                      str(p.get_position()),
@@ -373,7 +377,7 @@ class Team(object):
       @return: a Player object with the designated name, or 'None" if none found
     '''
     for p in self.player_list:
-      assert type(name) is str 
+      assert type(name) is str, "get_player_by_name takes one string input"
       if name == p.name: 
         return p
     
@@ -387,6 +391,7 @@ class Team(object):
       @param: string, either 'C', 'L', 'R', 'G', or 'D'
       @return: list of Player objects 
     '''
+    assert position in ['C', 'L', 'R', 'G', 'D'], "position is not valid"
     result = []
     for p in self.player_list: 
       if position in p.position: 
@@ -407,6 +412,7 @@ class Team(object):
         list_to_use = self.player_list
     total_points = 0
     for p in list_to_use:
+        assert type(p) == Player, "predict_team_next_points takes a list of Player objects"
         total_points = total_points + p.get_prediction()
         
     return round(total_points, 2)
@@ -547,7 +553,7 @@ if __name__ == '__main__':
         6) Print player stats
         7) Plot player stats 
     '''
-    testteam = Team('FantasyTeamPoints.xlsx')
+    testteam = Team('FantasyTeamPoints.xlsx', 'Dec03Data')
     
     testteam.print_team_stats()
     testteam.set_optimal_starting_roster()
@@ -556,7 +562,7 @@ if __name__ == '__main__':
     print("\nPredicted Roster Points: ", testteam.predict_starting_roster_next_points())
     
     
-    p = testteam.get_player_by_name('Hellebuyck')
+    p = testteam.get_player_by_name('Pionk')
     p.print_player_info()
     p.plot_player_stats()
     
